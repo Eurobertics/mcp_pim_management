@@ -1,0 +1,22 @@
+{
+  "statePath": "/home/DEIN_BENUTZER/.local/state/pim-management/actions.sqlite",
+  "displayTimezone": "Europe/Berlin",
+  "mail": [
+    {
+      "id": "mail-account",
+      "host": "IMAP_HOST",
+      "port": 993,
+      "username": "MAILADRESSE",
+      "password": "MAILPASSWORT",
+      "quarantineFolder": "PIM – Aussortiert"
+    }
+  ],
+  "calendars": [
+    {
+      "id": "calendar",
+      "url": "https://CALDAV_HOST/PFAD/ZUM/KALENDER/",
+      "username": "CALDAV_BENUTZER",
+      "password": "CALDAV_PASSWORT"
+    }
+  ]
+}

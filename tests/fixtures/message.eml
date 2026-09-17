@@ -1,0 +1,20 @@
+From: =?ISO-8859-1?Q?J=FCrgen?= <sender@example.invalid>
+To: Test User <recipient@example.invalid>
+Subject: =?UTF-8?Q?Pr=C3=BCfung?=
+Date: Fri, 11 Sep 2026 10:00:00 +0200
+Message-ID: <fixture@example.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+--outer
+Content-Type: text/html; charset=iso-8859-1
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Gr=FC=DFe!</p><script>evil()</script><img src="https://example.invalid/pixel"><p>Termin um 12 Uhr.</p></body></html>
+--outer
+Content-Type: text/plain; name="notiz.txt"
+Content-Disposition: attachment; filename="notiz.txt"
+Content-Transfer-Encoding: base64
+
+SGFsbG8=
+--outer--

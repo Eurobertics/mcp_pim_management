@@ -1,0 +1,57 @@
+[
+  { "name": "pim_status", "arguments": {} },
+  { "name": "mail_folders", "arguments": { "account": "mail-account", "limit": 25 } },
+  {
+    "name": "mail_search",
+    "arguments": {
+      "account": "mail-account",
+      "folder": "INBOX",
+      "readStatus": "unread",
+      "limit": 25
+    }
+  },
+  {
+    "name": "mail_read",
+    "arguments": {
+      "ref": {
+        "account": "mail-account",
+        "folder": "INBOX",
+        "uidValidity": "123",
+        "uid": 42
+      },
+      "offset": 0,
+      "maxChars": 12000
+    }
+  },
+  {
+    "name": "mail_quarantine",
+    "arguments": {
+      "ref": {
+        "account": "mail-account",
+        "folder": "INBOX",
+        "uidValidity": "123",
+        "uid": 42
+      },
+      "actionId": "11111111-1111-4111-8111-111111111111",
+      "reason": "Eindeutige Werbung"
+    }
+  },
+  { "name": "pim_actions", "arguments": { "offset": 0, "limit": 25 } },
+  {
+    "name": "mail_restore",
+    "arguments": {
+      "originalActionId": "11111111-1111-4111-8111-111111111111",
+      "actionId": "22222222-2222-4222-8222-222222222222",
+      "reason": "Auf Wunsch wiederhergestellt"
+    }
+  },
+  {
+    "name": "calendar_events",
+    "arguments": {
+      "calendar": "calendar",
+      "from": "2026-09-11T10:00:00+02:00",
+      "to": "2026-09-18T10:00:00+02:00",
+      "limit": 25
+    }
+  }
+]

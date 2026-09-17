@@ -1,0 +1,37 @@
+{
+  "name": "mcp_pim_management",
+  "version": "0.1.0",
+  "description": "Lokaler PIM-MCP für IMAP und CalDAV",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "npm run build && node --test --test-isolation=none tests/*.test.mjs",
+    "check": "tsc --noEmit",
+    "format": "prettier --write src tests package.json tsconfig.json config.example.json",
+    "format:check": "prettier --check src tests package.json tsconfig.json config.example.json"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "fast-xml-parser": "^5.11.1",
+    "html-to-text": "^10.0.1",
+    "imapflow": "^2.0.2",
+    "mailparser": "^3.9.24",
+    "node-ical": "^0.27.1",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.20.2",
+    "prettier": "^3.9.6",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
