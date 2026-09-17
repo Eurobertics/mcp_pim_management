@@ -120,6 +120,6 @@ npm run check
 npm test
 ```
 
-Die Tests verwenden MIME-/ICS-Fixtures, simuliertes IMAP/CalDAV und einen echten MCP-stdio-Client mit lokalem Serverprozess. Sie verwenden keine echten Zugangsdaten und verschieben keine echten Mails. Details und verbleibende Integrationspunkte stehen in [TEST_REPORT.md](TEST_REPORT.md).
+Die Tests verwenden MIME-/ICS-Fixtures, simuliertes IMAP/CalDAV und einen echten MCP-stdio-Client mit lokalem Serverprozess. Sie verwenden keine echten Zugangsdaten und verschieben keine echten Mails. Bekannte funktionale Grenzen und offene Integrationspunkte sind in den jeweiligen Abschnitten dieser README dokumentiert.
 
 Bibliotheken: [MCP TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/), [ImapFlow](https://imapflow.com/docs/api/imapflow-client/), [MailParser](https://nodemailer.com/extras/mailparser), [node-ical](https://github.com/jens-maus/node-ical), fast-xml-parser und html-to-text. Exakte Versionen stehen in `package-lock.json`.
