@@ -1,3 +1,6 @@
+[![M8ven Score](https://m8ven.ai/badge/mcp/eurobertics-mcp-pim-management-1gfg7v)](https://m8ven.ai/mcp/eurobertics-mcp-pim-management-1gfg7v)
+[![M8ven Score](https://m8ven.ai/badge/mcp/eurobertics-mcp-rpg-worldstate-13auk3)](https://m8ven.ai/mcp/eurobertics-mcp-rpg-worldstate-13auk3)
+
 # PIM Management MCP
 
 Lokaler TypeScript-MCP-Server für mehrere IMAP-Postfächer und ausgewählte CalDAV-Kalender. Transport: stdio. Mailabrufe erhalten den Gelesen-Status; Aussortieren und Wiederherstellen werden dauerhaft in SQLite protokolliert. Kalenderzugriff ausschließlich lesend. Keine SMTP-Funktion, endgültige Löschung, Ordnerleerung, Scheduler oder Benutzeroberfläche.
