@@ -29,7 +29,7 @@ test("real stdio MCP initialization, tool discovery, calls, schema errors and sa
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve("dist/index.js")],
-    env: { ...process.env, PIM_CONFIG: path },
+    env: { ...process.env, PIM_CONFIG: path, PIM_TRANSPORT: "stdio" },
     stderr: "pipe",
   });
   let stderr = "";
@@ -45,13 +45,20 @@ test("real stdio MCP initialization, tool discovery, calls, schema errors and sa
     assert(!stderr.includes("DO-NOT-LEAK"));
   });
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 8);
+  assert.equal(listed.tools.length, 12);
   const names = listed.tools.map((x) => x.name);
   assert(names.includes("mail_restore"));
   for (const tool of listed.tools)
     assert.equal(
       tool.annotations.readOnlyHint,
-      !["mail_restore", "mail_quarantine"].includes(tool.name),
+      ![
+        "mail_restore",
+        "mail_quarantine",
+        "mail_send",
+        "calendar_create",
+        "calendar_update",
+        "calendar_delete",
+      ].includes(tool.name),
     );
   const status = await client.callTool({ name: "pim_status", arguments: {} });
   assert.equal(status.structuredContent.data.connectivity, "not_checked");

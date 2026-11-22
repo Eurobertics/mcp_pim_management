@@ -12,6 +12,7 @@ import {
   type MailRef,
 } from "./common.js";
 import { Journal, type Action } from "./journal.js";
+import { composeMail, submitMail, type OutgoingMail } from "./smtp.js";
 export async function parseMail(source: Buffer) {
   const p = await simpleParser(source, {
     skipHtmlToText: true,
@@ -53,6 +54,7 @@ export class MailService {
     private config: Config,
     private journal: Journal,
     private factory: ClientFactory = (options) => new ImapFlow(options),
+    private submit = submitMail,
   ) {}
   private account(id: string) {
     return (
@@ -87,6 +89,83 @@ export class MailService {
   private valid(c: ImapFlow, ref: MailRef) {
     if (!c.mailbox || String(c.mailbox.uidValidity) !== ref.uidValidity)
       fail("STALE_REFERENCE", "UIDVALIDITY geändert; Nachricht erneut suchen.");
+  }
+  async send(
+    input: Omit<OutgoingMail, "messageId" | "inReplyTo"> & {
+      account: string;
+      actionId: string;
+      replyTo?: MailRef;
+    },
+  ) {
+    const { account, actionId, replyTo, ...fields } = input;
+    const smtp =
+      this.account(account).smtp ??
+      fail(
+        "SMTP_NOT_CONFIGURED",
+        "Für dieses Postfach ist kein SMTP-Konto konfiguriert.",
+      );
+    const old = this.journal.get(actionId);
+    if (old) {
+      if (old.kind !== "send" || old.account !== account)
+        return fail("ACTION_CONFLICT", "Aktions-ID wurde bereits verwendet.");
+      return old;
+    }
+    let inReplyTo: string | undefined;
+    if (replyTo) {
+      if (replyTo.account !== account)
+        fail(
+          "INVALID_REPLY_REFERENCE",
+          "Antwortreferenz gehört zu einem anderen Postfach.",
+        );
+      inReplyTo = (await this.read(replyTo)).messageId;
+      if (!inReplyTo || !/^<[^<>\s]+>$/.test(inReplyTo))
+        fail(
+          "INVALID_REPLY_REFERENCE",
+          "Originalnachricht hat keine gültige Message-ID.",
+        );
+    }
+    const messageId = `<${actionId}@${smtp.from.split("@").at(-1)}>`;
+    const mail = { ...fields, messageId, inReplyTo };
+    const raw = await composeMail(smtp.from, mail);
+    const now = new Date().toISOString();
+    const { action, fresh } = this.journal.beginSend({
+      id: actionId,
+      kind: "send",
+      account,
+      messageId,
+      state: "pending",
+      copy: "not_attempted",
+      created: now,
+      updated: now,
+    });
+    if (!fresh) return action;
+    let result: Awaited<ReturnType<typeof submitMail>>;
+    try {
+      result = await this.submit(smtp, raw, mail);
+    } catch (error) {
+      const code =
+        (error as { responseCode?: number } | null)?.responseCode ?? 0;
+      action.state = code >= 400 && code <= 599 ? "failed" : "uncertain";
+      this.journal.save(action);
+      return action;
+    }
+    action.acceptedCount = result.accepted.length;
+    action.rejectedCount = result.rejected.length;
+    action.state = result.accepted.length ? "completed" : "failed";
+    action.copy = result.accepted.length ? "pending" : "not_attempted";
+    this.journal.save(action);
+    if (action.copy === "pending") {
+      try {
+        const appended = await this.connect(account, (client) =>
+          client.append(smtp.sentFolder, raw, ["\\Seen"]),
+        );
+        action.copy = appended ? "saved" : "failed";
+      } catch {
+        action.copy = "failed";
+      }
+      this.journal.save(action);
+    }
+    return { ...action, accepted: result.accepted, rejected: result.rejected };
   }
   async folders(account: string, limit: number, cursor?: string) {
     return this.connect(account, async (c) => {

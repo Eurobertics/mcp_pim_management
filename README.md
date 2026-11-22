@@ -3,7 +3,7 @@
 
 # PIM Management MCP
 
-Lokaler TypeScript-MCP-Server für mehrere IMAP-Postfächer und ausgewählte CalDAV-Kalender. Transport: stdio. Mailabrufe erhalten den Gelesen-Status; Aussortieren und Wiederherstellen werden dauerhaft in SQLite protokolliert. Kalenderzugriff ausschließlich lesend. Keine SMTP-Funktion, endgültige Löschung, Ordnerleerung, Scheduler oder Benutzeroberfläche.
+TypeScript-MCP-Server für mehrere IMAP-Postfächer und ausgewählte CalDAV-Kalender. Er unterstützt stdio und Streamable HTTP(S), optionalen SMTP-Versand und die Verwaltung von Einzelterminen. Mailabrufe erhalten den Gelesen-Status. Das SQLite-Journal protokolliert das Aussortieren, Wiederherstellen und Senden von Nachrichten.
 
 ## Installation
 
@@ -15,7 +15,7 @@ npm run build
 npm test
 ```
 
-`npm start` startet den Server. Ohne MCP-Client wartet er auf JSON-RPC über stdin; stdout ist ausschließlich für MCP reserviert. Diagnosen werden ohne Zugangsdaten an stderr ausgegeben.
+`npm start` startet den Server. Standardmäßig wartet er auf JSON-RPC über stdin. Diagnosemeldungen gehen ohne Zugangsdaten an stderr.
 
 ## Konfiguration
 
@@ -35,6 +35,7 @@ npm start
 ```
 
 - `mail`: pro Postfach eine eindeutige `id`, IMAP-Host, Port (Standard 993), Benutzername, Passwort und optionaler `quarantineFolder` (Standard `PIM – Aussortiert`). Ausschließlich implizites TLS mit Zertifikatsprüfung.
+- `mail[].smtp` aktiviert den Versand für das jeweilige Postfach. Der Block enthält `host`, `port`, `username`, `password`, die Absenderadresse `from`, `tls` (`implicit` oder `starttls`) und `sentFolder` als exakten Pfad eines bestehenden IMAP-Ordners. Der Server legt nach SMTP-Annahme selbst eine Kopie ab. Bei Anbietern, die SMTP-Nachrichten ebenfalls automatisch ablegen, können dadurch zwei Kopien entstehen.
 - `calendars`: pro ausgewähltem Kalender eine eindeutige `id`, **direkte CalDAV-Kalender-URL** sowie Benutzername und Passwort beziehungsweise App-Passwort. Mehrere Einträge können dieselben Zugangsdaten verwenden. Keine öffentliche ICS-Freigabe-URL und keine allgemeine DAV-Root-URL. Nicht eingetragene Kalender werden nicht abgefragt. Es gibt keine automatische Kalendererkennung.
 - `displayTimezone`: Standard `Europe/Berlin`. Zeitpunkte werden zusätzlich in dieser Zone dargestellt. Floating-Kalenderzeiten ohne TZID werden in dieser Zone interpretiert.
 - `statePath`: dauerhaftes SQLite-Aktionsjournal. Es enthält Referenzen und Begründungen, keine Mailtexte oder Passwörter. Nicht löschen, solange Wiederherstellung oder Schutz vor Wiederholungen benötigt wird. Nur im gestoppten Zustand zusammen mit der Konfiguration sichern; bei Wiederherstellung älterer Backups können neuere Aktionen fehlen.
@@ -81,6 +82,21 @@ Den vollständigen Ordner [`skills/pim-management`](skills/pim-management/SKILL.
 
 Intervallausführung und Desktop-Benachrichtigungen sind bewusst nicht implementiert und müssen bei Bedarf separat eingerichtet werden.
 
+### HTTP und HTTPS
+
+| Umgebungsvariable | Bedeutung | Standard |
+| --- | --- | --- |
+| `PIM_TRANSPORT` | `stdio`, `http` oder `https` | `stdio` |
+| `PIM_HOST` | Bind-Adresse | `127.0.0.1` |
+| `PIM_PORT` | Port von 1 bis 65535 | `3000` |
+| `PIM_TOKEN` | Bearer-Token, erforderlich für HTTP und HTTPS | |
+| `PIM_TLS_CERT` | PEM-Zertifikat, gegebenenfalls mit Zertifikatskette | |
+| `PIM_TLS_KEY` | Privater PEM-Schlüssel | |
+
+Der Client verwendet `https://server.example:3000/mcp` und sendet bei jedem Aufruf `Authorization: Bearer <token>`. Der Token gewährt Zugriff auf alle konfigurierten Quellen und Werkzeuge. Streamable HTTP verwendet zustandslose JSON-Antworten über POST. GET und DELETE liefern nach Authentifizierung 405. Anfragen mit Origin-Header werden abgelehnt.
+
+Für direkten Netzwerkzugriff HTTPS verwenden. HTTP ist für Loopback oder den internen Anschluss eines TLS-Reverse-Proxys vorgesehen, da es Token und PIM-Daten im Klartext überträgt. HTTPS unterstützt TLS ab 1.2 sowie vorhandene selbstsignierte Zertifikate. Deren Vertrauen wird im Client konfiguriert, etwa durch Hinzufügen des Zertifikats zum Vertrauensspeicher. Eine Prüfeinstellung wie `sslVerify` gehört zum jeweiligen Client. Zertifikat, Schlüssel und Token werden beim Start geladen.
+
 ## Werkzeuge und Ergebnisvertrag
 
 | Werkzeug | Wesentliche Parameter | Zweck |
@@ -92,7 +108,11 @@ Intervallausführung und Desktop-Benachrichtigungen sind bewusst nicht implement
 | `mail_quarantine` | `ref`, `actionId`, `reason` | Eine Nachricht aussortieren |
 | `pim_actions` | `actionId?` oder `offset?`, `limit?` | Einzelaktion oder Journal, neueste zuerst |
 | `mail_restore` | `originalActionId`, `actionId`, `reason` | Erfolgreiche Aussortierung rückgängig machen |
+| `mail_send` | `account`, `actionId`, `to`, `subject`, `text`, `cc?`, `bcc?`, `replyTo?` | Klartextmail senden und in Gesendet ablegen |
 | `calendar_events` | `calendar`, `from`, `to`, `limit?`, `cursor?` | Serientermine, Ausnahmen, Absagen und überlappende Termine |
+| `calendar_create` | `calendar`, `title`, `start`, `end`, `description?`, `location?` | Einzeltermin anlegen |
+| `calendar_update` | `ref` und zu ändernde Felder | Einzeltermin ändern oder zeitlich verschieben |
+| `calendar_delete` | `ref` | Einzeltermin löschen |
 
 `ref` enthält `account`, `folder`, `uidValidity` als Dezimalstring und `uid` als positive Zahl. Referenzen unverändert aus Such-/Aktionsergebnissen übernehmen. Bei geänderter UIDVALIDITY erneut suchen. `actionId` ist eine vom Aufrufer erzeugte UUID, `reason` ein sachlicher Text mit maximal 1000 Zeichen.
 
@@ -115,6 +135,12 @@ Vor dem MOVE wird die Aktion synchron und dauerhaft als `pending` gespeichert. G
 Bei Verbindungsabbruch nach Beginn des MOVE oder fehlender UID-Zuordnung wird die Aktion `uncertain`. Nach abruptem Prozessende kann sie `pending` bleiben. **Beide Zustände werden nicht automatisch erneut ausgeführt.** Der tatsächliche Stand muss dann anhand von Postfach und Journal manuell geprüft werden. Diese erste Version bietet keine automatische Rekonstruktion oder Freigabe unklarer Aktionen; Message-ID allein wäre dafür kein eindeutiger Nachweis. `failed` bedeutet, dass der Server noch keinen MOVE aufgerufen hat; eine Ordneranlage kann bereits erfolgt sein.
 
 Nach einer externen Verschiebung, Ordnerlöschung oder UIDVALIDITY-Änderung kann automatische Wiederherstellung scheitern. Das Journal ersetzt kein Mailbackup. Ein erneuter Aussortier-/Wiederherstellungszyklus ist mit den neu erhaltenen UIDs möglich.
+
+## Mailversand und Einzeltermine
+
+`mail_send` meldet SMTP-Annahme und Gesendet-Ablage getrennt. `state: completed` bedeutet Annahme für mindestens einen Empfänger. Die erste Antwort nennt angenommene und abgelehnte Adressen. Im Journal stehen nur die Anzahlen, die Message-ID und der Status. Bei `copy: failed` wurde die Mail angenommen, aber die Ablage konnte nicht bestätigt werden. Dieselbe Aktions-ID löst keinen weiteren Versand aus. Bei `pending` oder `uncertain` zuerst den Ausgang prüfen und keine neue ID zur Wiederholung erzeugen.
+
+Kalenderänderungen benötigen die aktuelle `ref` mit starkem `etag` aus einem Werkzeugergebnis. Wenn der Server nach einem Schreibvorgang keinen ETag zurückgibt oder ein Konflikt gemeldet wird, den Termin erneut abfragen. Start und Ende werden gemeinsam geändert. `description: null` und `location: null` entfernen das jeweilige Feld. Ein zeitlicher Umzug behält UID und Kalender bei. Serien und Serienausnahmen sind lesbar. Einzeltermine können zu einem beliebigen Datum angelegt werden. Abfragen sind auf ein Zeitfenster von 93 Tagen pro Aufruf begrenzt.
 
 ## Entwicklung und Abnahme
 

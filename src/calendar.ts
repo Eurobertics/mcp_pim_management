@@ -1,11 +1,25 @@
 import { Worker } from "node:worker_threads";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import type { Config } from "./config.js";
 import { decode, encode, fail, range, safeError } from "./common.js";
 import type { expand } from "./calendar-worker.js";
+import {
+  editEvent,
+  newEvent,
+  singleEvent,
+  strongEtag,
+  type CalendarFields,
+  type CalendarRef,
+} from "./calendar-write.js";
 type Event = ReturnType<typeof expand>[number] & {
-  ref: { calendar: string; href: string; uid: string; recurrenceId: string };
+  ref: {
+    calendar: string;
+    href: string;
+    uid: string;
+    recurrenceId: string;
+    etag?: string;
+  };
 };
 const array = <T>(v: T | T[] | undefined): T[] =>
   v === undefined ? [] : Array.isArray(v) ? v : [v];
@@ -72,6 +86,162 @@ export class CalendarService {
     private config: Config,
     private fetcher: typeof fetch = fetch,
   ) {}
+  private source(calendar: string) {
+    return (
+      this.config.calendars.find((x) => x.id === calendar) ??
+      fail("UNKNOWN_CALENDAR", "Unbekannter Kalender.")
+    );
+  }
+  private collection(url: string) {
+    const base = new URL(url);
+    if (!base.pathname.endsWith("/")) base.pathname += "/";
+    return base;
+  }
+  private resource(base: URL, href: string) {
+    const url = URL.parse(href, base);
+    const name = url?.pathname.slice(base.pathname.length);
+    if (
+      !url ||
+      url.origin !== base.origin ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !url.pathname.startsWith(base.pathname) ||
+      !name ||
+      /[\\/]|%2f|%5c|%00|%25/i.test(name)
+    )
+      return fail(
+        "INVALID_CALENDAR_REFERENCE",
+        "Ressource gehört nicht zum Kalender.",
+      );
+    return url;
+  }
+  private request(
+    c: ReturnType<CalendarService["source"]>,
+    url: string,
+    options: RequestInit,
+  ) {
+    return this.fetcher(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization:
+          "Basic " +
+          Buffer.from(c.username + ":" + c.password).toString("base64"),
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(30000),
+    });
+  }
+  private checkResponse(response: Response) {
+    if (response.status === 412)
+      fail(
+        "CALENDAR_CONFLICT",
+        "Kalenderressource hat sich geändert; Termin neu laden.",
+      );
+    if (response.status === 404)
+      fail("NOT_FOUND", "Kalenderressource wurde nicht gefunden.");
+    if (!response.ok)
+      fail(
+        "CALDAV_HTTP",
+        "CalDAV-Aktion fehlgeschlagen (HTTP " + response.status + ").",
+      );
+  }
+  private async write(
+    c: ReturnType<CalendarService["source"]>,
+    url: URL,
+    options: RequestInit,
+  ) {
+    let response: Response;
+    try {
+      response = await this.request(c, url.href, options);
+    } catch {
+      return fail(
+        "CALENDAR_WRITE_UNCERTAIN",
+        "Ausgang der Kalenderaktion unklar; Kalender vor einer Wiederholung prüfen.",
+      );
+    }
+    void response.body?.cancel().catch(() => {});
+    this.checkResponse(response);
+    return response.headers.get("etag");
+  }
+  private async loadSingle(ref: CalendarRef) {
+    if (!strongEtag(ref.etag))
+      return fail("INVALID_CALENDAR_REFERENCE", "Starker ETag erforderlich.");
+    const c = this.source(ref.calendar);
+    const url = this.resource(this.collection(c.url), ref.href);
+    const response = await this.request(c, url.href, {
+      method: "GET",
+      headers: { "If-Match": ref.etag },
+    });
+    this.checkResponse(response);
+    if (response.headers.get("etag") !== ref.etag)
+      return fail(
+        "CALENDAR_CONFLICT",
+        "ETag stimmt nicht überein; Termin neu laden.",
+      );
+    const event = singleEvent(await boundedText(response));
+    if (!event)
+      return fail(
+        "UNSUPPORTED_CALENDAR_RESOURCE",
+        "Nur eigenständige Einzeltermine können bearbeitet werden.",
+      );
+    if (event.uid !== ref.uid)
+      return fail(
+        "INVALID_CALENDAR_REFERENCE",
+        "Termin-ID stimmt nicht überein.",
+      );
+    return { c, url, event };
+  }
+  async create(calendar: string, fields: CalendarFields) {
+    const c = this.source(calendar);
+    const uid = randomUUID();
+    const url = this.resource(this.collection(c.url), uid + ".ics");
+    const etag = await this.write(c, url, {
+      method: "PUT",
+      headers: {
+        "If-None-Match": "*",
+        "Content-Type": "text/calendar; charset=utf-8",
+      },
+      body: newEvent(uid, fields),
+    });
+    return {
+      ref: {
+        calendar,
+        href: url.pathname,
+        uid,
+        ...(strongEtag(etag) && { etag }),
+      },
+    };
+  }
+  async update(ref: CalendarRef, fields: Partial<CalendarFields>) {
+    const { c, url, event } = await this.loadSingle(ref);
+    const etag = await this.write(c, url, {
+      method: "PUT",
+      headers: {
+        "If-Match": ref.etag,
+        "Content-Type": "text/calendar; charset=utf-8",
+      },
+      body: editEvent(event, fields),
+    });
+    return {
+      ref: {
+        calendar: ref.calendar,
+        href: url.pathname,
+        uid: ref.uid,
+        ...(strongEtag(etag) && { etag }),
+      },
+    };
+  }
+  async remove(ref: CalendarRef) {
+    const { c, url } = await this.loadSingle(ref);
+    await this.write(c, url, {
+      method: "DELETE",
+      headers: { "If-Match": ref.etag },
+    });
+    return { deleted: true };
+  }
   async events(
     calendar: string,
     from: string,
@@ -80,22 +250,17 @@ export class CalendarService {
     cursor?: string,
   ) {
     range(from, to);
-    const c =
-      this.config.calendars.find((x) => x.id === calendar) ??
-      fail("UNKNOWN_CALENDAR", "Unbekannter Kalender.");
+    const c = this.source(calendar);
     const stamp = (s: string) =>
       new Date(s).toISOString().replace(/[-:]/g, "").replace(".000", "");
     const body = `<?xml version="1.0" encoding="UTF-8"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${stamp(from)}" end="${stamp(to)}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`;
-    const response = await this.fetcher(c.url, {
+    const response = await this.request(c, c.url, {
       method: "REPORT",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${c.username}:${c.password}`).toString("base64")}`,
         "Content-Type": "application/xml; charset=utf-8",
         Depth: "1",
       },
       body,
-      redirect: "error",
-      signal: AbortSignal.timeout(30000),
     });
     if (response.status !== 207)
       return fail(
@@ -140,6 +305,10 @@ export class CalendarService {
             "DAV_RESOURCE_ERROR",
             "Kalenderdaten oder Referenz fehlen.",
           );
+        const etag = good
+          .map((p) => p.prop?.getetag?.trim?.())
+          .find(strongEtag);
+        const editable = etag && singleEvent(ics);
         for (const event of await expandSafe(
           ics,
           from,
@@ -153,6 +322,7 @@ export class CalendarService {
               href: row.href,
               uid: event.uid,
               recurrenceId: event.recurrenceId,
+              ...(editable && { etag }),
             },
           });
       } catch (e) {
