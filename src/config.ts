@@ -29,6 +29,16 @@ const schema = z
           port: z.number().int().min(1).max(65535).default(993),
           ...credentials,
           quarantineFolder: z.string().min(1).default("PIM – Aussortiert"),
+          smtp: z
+            .object({
+              host: z.string().min(1),
+              port: z.number().int().min(1).max(65535),
+              ...credentials,
+              from: z.email(),
+              tls: z.enum(["implicit", "starttls"]),
+              sentFolder: z.string().min(1),
+            })
+            .optional(),
         }),
       )
       .max(20)

@@ -15,6 +15,19 @@ export interface Action {
   updated: string;
   error?: string;
 }
+export interface SendAction {
+  id: string;
+  kind: "send";
+  account: string;
+  messageId: string;
+  state: Action["state"];
+  copy: "pending" | "saved" | "failed" | "not_attempted";
+  acceptedCount?: number;
+  rejectedCount?: number;
+  created: string;
+  updated: string;
+}
+type JournalAction = Action | SendAction;
 export class Journal {
   private db: DatabaseSync;
   constructor(path: string) {
@@ -25,7 +38,7 @@ export class Journal {
       "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY, source TEXT NOT NULL, parent TEXT, data TEXT NOT NULL);",
     );
   }
-  get(id: string): Action | undefined {
+  get(id: string): JournalAction | undefined {
     const row = this.db.prepare("SELECT data FROM actions WHERE id=?").get(id);
     return row ? JSON.parse(String(row.data)) : undefined;
   }
@@ -35,13 +48,14 @@ export class Journal {
       const old = this.get(action.id);
       if (old) {
         if (
+          old.kind === "send" ||
           JSON.stringify(old.source) !== JSON.stringify(action.source) ||
           old.target !== action.target ||
           old.kind !== action.kind ||
           old.parent !== action.parent ||
           old.reason !== action.reason
         )
-          fail(
+          return fail(
             "ACTION_CONFLICT",
             "Aktions-ID wurde bereits für andere Parameter verwendet.",
           );
@@ -73,7 +87,19 @@ export class Journal {
       throw e;
     }
   }
-  save(action: Action) {
+  beginSend(action: SendAction): { action: SendAction; fresh: boolean } {
+    const inserted = this.db
+      .prepare(
+        "INSERT INTO actions VALUES (?, ?, NULL, ?) ON CONFLICT(id) DO NOTHING",
+      )
+      .run(action.id, "", JSON.stringify(action));
+    if (inserted.changes) return { action, fresh: true };
+    const old = this.get(action.id);
+    if (old?.kind !== "send" || old.account !== action.account)
+      return fail("ACTION_CONFLICT", "Aktions-ID wurde bereits verwendet.");
+    return { action: old, fresh: false };
+  }
+  save(action: JournalAction) {
     action.updated = new Date().toISOString();
     this.db
       .prepare("UPDATE actions SET data=? WHERE id=?")
@@ -86,7 +112,7 @@ export class Journal {
     return {
       items: rows
         .slice(0, limit)
-        .map((r) => JSON.parse(String(r.data)) as Action),
+        .map((r) => JSON.parse(String(r.data)) as JournalAction),
       hasMore: rows.length > limit,
     };
   }

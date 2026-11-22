@@ -8,7 +8,16 @@
       "port": 993,
       "username": "MAILADRESSE",
       "password": "MAILPASSWORT",
-      "quarantineFolder": "PIM – Aussortiert"
+      "quarantineFolder": "PIM – Aussortiert",
+      "smtp": {
+        "host": "SMTP_HOST",
+        "port": 587,
+        "tls": "starttls",
+        "username": "MAILADRESSE",
+        "password": "SMTP_PASSWORT",
+        "from": "name@example.com",
+        "sentFolder": "Sent"
+      }
     }
   ],
   "calendars": [

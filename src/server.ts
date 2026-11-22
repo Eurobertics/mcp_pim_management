@@ -24,6 +24,7 @@ export function createServer(
     shape: z.ZodRawShape,
     readOnly: boolean,
     handler: (args: any) => Promise<unknown> | unknown,
+    hints = { destructiveHint: false, idempotentHint: true },
   ) => {
     server.registerTool(
       name,
@@ -32,8 +33,7 @@ export function createServer(
         inputSchema: shape,
         annotations: {
           readOnlyHint: readOnly,
-          destructiveHint: false,
-          idempotentHint: true,
+          ...hints,
           openWorldHint: true,
         },
       },
@@ -71,6 +71,7 @@ export function createServer(
       mail: config.mail.map((x) => ({
         id: x.id,
         quarantineFolder: x.quarantineFolder,
+        canSend: !!x.smtp,
       })),
       calendars: config.calendars.map((x) => ({ id: x.id })),
       displayTimezone: config.displayTimezone,
@@ -155,12 +156,79 @@ export function createServer(
       return { ...p, nextOffset: p.hasMore ? a.offset + a.limit : null };
     },
   );
+  const recipients = z.array(z.email()).max(50);
+  register(
+    "mail_send",
+    "Klartextmail über das gewählte Postfach senden und in Gesendet ablegen. Bei unklarem Ergebnis dieselbe actionId nachschlagen; nicht erneut senden.",
+    {
+      account: z.string(),
+      actionId: action.actionId,
+      to: recipients.min(1),
+      cc: recipients.optional(),
+      bcc: recipients.optional(),
+      subject: z
+        .string()
+        .max(998)
+        .regex(/^[^\r\n]*$/),
+      text: z.string().max(262144),
+      replyTo: refSchema.optional(),
+    },
+    false,
+    (a) => mail.send(a),
+  );
   register(
     "calendar_events",
     "Termine eines konfigurierten CalDAV-Kalenders in [from,to), einschließlich überlappender Termine und gekennzeichneter Absagen. Cursor folgen.",
     { calendar: z.string(), ...rangeSchema, ...pageSchema },
     true,
     (a) => calendar.events(a.calendar, a.from, a.to, a.limit, a.cursor),
+  );
+  const date = z.union([z.iso.date(), z.iso.datetime({ offset: true })]);
+  const fields = {
+    title: z.string().min(1).max(1000),
+    description: z.string().max(12000).nullable().optional(),
+    location: z.string().max(1000).nullable().optional(),
+    start: date,
+    end: date,
+  };
+  const ref = z.object({
+    calendar: z.string(),
+    href: z.string().min(1).max(4000),
+    uid: z.string().min(1).max(1000),
+    etag: z
+      .string()
+      .regex(/^"[^"\x00-\x20\x7f]*"$/)
+      .max(1024),
+  });
+  register(
+    "calendar_create",
+    "Einzeltermin anlegen. Bei ganztägigen Terminen ist das Enddatum exklusiv.",
+    { calendar: z.string(), ...fields },
+    false,
+    ({ calendar: id, ...a }) => calendar.create(id, a),
+    { destructiveHint: false, idempotentHint: false },
+  );
+  register(
+    "calendar_update",
+    "Einzeltermin ändern oder zeitlich verschieben. Start und Ende gemeinsam angeben.",
+    {
+      ref,
+      ...fields,
+      title: fields.title.optional(),
+      start: date.optional(),
+      end: date.optional(),
+    },
+    false,
+    ({ ref, ...a }) => calendar.update(ref, a),
+    { destructiveHint: true, idempotentHint: false },
+  );
+  register(
+    "calendar_delete",
+    "Einzeltermin anhand seiner aktuellen Referenz löschen.",
+    { ref },
+    false,
+    (a) => calendar.remove(a.ref),
+    { destructiveHint: true, idempotentHint: false },
   );
   return server;
 }
