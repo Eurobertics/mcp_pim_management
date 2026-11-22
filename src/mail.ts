@@ -346,22 +346,30 @@ export class MailService {
             continue;
           const ref = { account, folder, uidValidity, uid };
           let excerpt: string | null = null;
-          if ((row.size ?? Infinity) <= 10 * 1024 * 1024) {
+          let excerptOmittedReason:
+            "MESSAGE_TOO_LARGE" | "SIZE_UNKNOWN" | undefined;
+          if (row.size == null) {
+            excerptOmittedReason = "SIZE_UNKNOWN";
+          } else if (row.size > 10 * 1024 * 1024) {
+            excerptOmittedReason = "MESSAGE_TOO_LARGE";
+          } else {
             const body = await c.fetchOne(
               String(uid),
               { source: { maxLength: 10 * 1024 * 1024 + 1 } },
               { uid: true },
             );
-            if (body && body.source) {
+            if (!body || !body.source) {
+              errors.push({ uid, code: "VANISHED" });
+            } else if (body.source.length > 10 * 1024 * 1024) {
+              excerptOmittedReason = "MESSAGE_TOO_LARGE";
+            } else {
               try {
-                if (body.source.length > 10 * 1024 * 1024)
-                  fail("MESSAGE_TOO_LARGE", "MIME-Limit überschritten.");
                 excerpt = (await parseMail(body.source)).text.slice(0, 500);
               } catch {
                 errors.push({ uid, code: "MIME_ERROR" });
               }
-            } else errors.push({ uid, code: "VANISHED" });
-          } else errors.push({ uid, code: "MESSAGE_TOO_LARGE" });
+            }
+          }
           items.push({
             ref,
             subject: row.envelope?.subject,
@@ -373,6 +381,7 @@ export class MailService {
             receivedAt: received.toISOString(),
             flags: [...(row.flags ?? [])],
             excerpt,
+            excerptOmittedReason,
           });
         }
         return {

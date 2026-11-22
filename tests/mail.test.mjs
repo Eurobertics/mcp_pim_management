@@ -229,23 +229,20 @@ test("move is durable and idempotent across journal instances; restore maps new 
   });
   state.rows.set(50, state.rows.get(3));
   // A new connection to destination has its own UIDVALIDITY.
-  mail.factory = (opts) => {
-    const c = {
-      on() {},
-      connect: async () => {},
-      close() {},
-      capabilities: state.capabilities,
-      mailbox: { uidValidity: 20n },
-      getMailboxLock: async () => ({ release() {} }),
-      fetchOne: async () => ({ uid: 50 }),
-      list: async () => [{ path: "INBOX" }],
-      messageMove: async () => {
-        state.moves++;
-        return { uidValidity: 10n, uidMap: new Map([[50, 80]]) };
-      },
-    };
-    return c;
-  };
+  mail.factory = () => ({
+    on() {},
+    connect: async () => {},
+    close() {},
+    capabilities: state.capabilities,
+    mailbox: { uidValidity: 20n },
+    getMailboxLock: async () => ({ release() {} }),
+    fetchOne: async () => ({ uid: 50 }),
+    list: async () => [{ path: "INBOX" }],
+    messageMove: async () => {
+      state.moves++;
+      return { uidValidity: 10n, uidMap: new Map([[50, 80]]) };
+    },
+  });
   const restored = await mail.restore(id, randomUUID(), "Zurück");
   assert.equal(restored.state, "completed");
   assert.equal(restored.destination.uid, 80);
@@ -295,12 +292,25 @@ test("unsupported server never attempts fallback COPY/delete/EXPUNGE", async (t)
   );
   assert.equal(state.moves, 0);
 });
-test("offline source throws, oversized MIME makes search explicitly incomplete", async (t) => {
+test("offline source throws", async (t) => {
   const { mail, state } = setup(t);
   state.mode = "offline";
   await assert.rejects(mail.read(ref));
-  state.mode = "ok";
+});
+
+test("search keeps oversized messages and skips their source fetch", async (t) => {
+  const { mail, state } = setup(t);
   state.rows.get(3).size = 11000000;
+  const original = mail.factory;
+  mail.factory = (options) => {
+    const c = original(options);
+    const fetchOne = c.fetchOne;
+    c.fetchOne = async (uid, query, opts) => {
+      if (uid === "3") assert.equal(query.source, undefined);
+      return fetchOne(uid, query, opts);
+    };
+    return c;
+  };
   const result = await mail.search(
     "test",
     "INBOX",
@@ -308,8 +318,16 @@ test("offline source throws, oversized MIME makes search explicitly incomplete",
     "2026-09-12T00:00:00Z",
     25,
   );
-  assert.equal(result.complete, false);
-  assert.equal(result.errors[0].code, "MESSAGE_TOO_LARGE");
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.items.length, 3);
+  assert.deepEqual(result.items[0].ref, ref);
+  assert.equal(result.items[0].excerpt, null);
+  assert.equal(result.items[0].excerptOmittedReason, "MESSAGE_TOO_LARGE");
+  assert.equal(
+    result.items[1].excerpt,
+    (await parseMail(source)).text.slice(0, 500),
+  );
 });
 
 test("search uses valid 32-bit UID range and rejects server failure", async (t) => {
