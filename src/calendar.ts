@@ -148,6 +148,29 @@ export class CalendarService {
         "CalDAV-Aktion fehlgeschlagen (HTTP " + response.status + ").",
       );
   }
+  private async forbiddenReason(response: Response) {
+    try {
+      const xml = await boundedText(response, 16 * 1024);
+      if (
+        /<!DOCTYPE|<!ENTITY/i.test(xml) ||
+        XMLValidator.validate(xml) !== true
+      )
+        return;
+      const { error } = new XMLParser({
+        removeNSPrefix: true,
+        processEntities: false,
+      }).parse(xml);
+      if (!error || typeof error !== "object") return;
+      if (Object.hasOwn(error, "need-privileges"))
+        return "Der CalDAV-Server meldet fehlende Rechte für die Aktion.";
+      if (Object.hasOwn(error, "valid-calendar-data"))
+        return "Der CalDAV-Server meldet ungültige iCalendar-Daten.";
+      if (Object.hasOwn(error, "valid-calendar-object-resource"))
+        return "Der CalDAV-Server lehnt die Kalenderobjekt-Ressource ab.";
+    } catch {
+      // The original HTTP status still applies if the error body is unavailable.
+    }
+  }
   private async write(
     c: ReturnType<CalendarService["source"]>,
     url: URL,
@@ -162,7 +185,12 @@ export class CalendarService {
         "Ausgang der Kalenderaktion unklar; Kalender vor einer Wiederholung prüfen.",
       );
     }
-    void response.body?.cancel().catch(() => {});
+    if (response.status === 403) {
+      const reason = await this.forbiddenReason(response);
+      if (reason) fail("CALDAV_HTTP", `HTTP 403. ${reason}`);
+    } else {
+      void response.body?.cancel().catch(() => {});
+    }
     this.checkResponse(response);
     return response.headers.get("etag");
   }

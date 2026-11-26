@@ -169,6 +169,44 @@ test("CalDAV creates, moves and deletes a single event conditionally", async () 
   assert.equal(calls.at(-1)[1].headers["If-Match"], '"second"');
 });
 
+test("CalDAV reports known 403 reasons without exposing the server body", async () => {
+  const calendar = new CalendarService(
+    {
+      calendars: [
+        {
+          id: "Privat",
+          url: "https://calendar.example.test/cal/",
+          username: "a",
+          password: "b",
+        },
+      ],
+    },
+    async () => new Response(body, { status: 403 }),
+  );
+  let body;
+  for (const [response, message] of [
+    [
+      '<d:error xmlns:d="DAV:"><d:need-privileges>private</d:need-privileges></d:error>',
+      "HTTP 403. Der CalDAV-Server meldet fehlende Rechte für die Aktion.",
+    ],
+    [
+      '<d:error xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><c:valid-calendar-data/></d:error>',
+      "HTTP 403. Der CalDAV-Server meldet ungültige iCalendar-Daten.",
+    ],
+    ["private proxy error", "CalDAV-Aktion fehlgeschlagen (HTTP 403)."],
+  ]) {
+    body = response;
+    await assert.rejects(
+      calendar.create("Privat", {
+        title: "Termin",
+        start: "2026-11-27T17:00:00+01:00",
+        end: "2026-11-27T22:00:00+01:00",
+      }),
+      { code: "CALDAV_HTTP", message },
+    );
+  }
+});
+
 test("CalDAV exposes a writable ETag for a single event beyond seven days", async () => {
   const ics = [
     "BEGIN:VCALENDAR",
