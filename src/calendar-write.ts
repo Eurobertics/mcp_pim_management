@@ -8,6 +8,8 @@ export type CalendarFields = {
   location?: string | null;
 };
 
+export type NewCalendarFields = CalendarFields & { reminderMinutes?: number };
+
 export type CalendarRef = {
   calendar: string;
   href: string;
@@ -30,6 +32,7 @@ export function singleEvent(ics: string) {
   const stack: string[] = [];
   const fields = new Map<string, number[]>();
   let end = -1;
+  let firstAlarm: number | undefined;
   let events = 0;
   for (const [index, line] of lines.entries()) {
     const upper = line.toUpperCase();
@@ -40,6 +43,8 @@ export function singleEvent(ics: string) {
         return;
       if (component === "VEVENT" && (stack.length !== 1 || ++events !== 1))
         return;
+      if (component === "VALARM" && stack.length === 2 && stack[1] === "VEVENT")
+        firstAlarm ??= index;
       stack.push(component);
     } else if (upper.startsWith("END:")) {
       const component = upper.slice(4);
@@ -55,7 +60,12 @@ export function singleEvent(ics: string) {
   }
   const uid = fields.get("UID");
   if (stack.length || end < 0 || uid?.length !== 1) return;
-  return { lines, end, fields, uid: lines[uid[0]].split(/:(.*)/s)[1] };
+  return {
+    lines,
+    insertAt: firstAlarm ?? end,
+    fields,
+    uid: lines[uid[0]].split(/:(.*)/s)[1],
+  };
 }
 
 function fold(line: string) {
@@ -129,16 +139,34 @@ export function editEvent(
     (line): line is string => line !== null,
   );
   const lines = event.lines.flatMap((line, index) =>
-    index === event.end ? [...added, line] : replaced.has(index) ? [] : [line],
+    index === event.insertAt
+      ? [...added, line]
+      : replaced.has(index)
+        ? []
+        : [line],
   );
   return lines.map(fold).join("\r\n") + "\r\n";
 }
 
-export function newEvent(uid: string, fields: CalendarFields) {
+export function newEvent(uid: string, fields: NewCalendarFields) {
+  const { reminderMinutes } = fields;
+  const alarm =
+    reminderMinutes === undefined
+      ? ""
+      : [
+          "BEGIN:VALARM",
+          "ACTION:DISPLAY",
+          `TRIGGER:${reminderMinutes === 0 ? "PT0M" : `-PT${reminderMinutes}M`}`,
+          "DESCRIPTION:Terminerinnerung",
+          "END:VALARM",
+          "",
+        ].join("\r\n");
   const event = singleEvent(
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PIM Management//CalDAV//EN\r\nBEGIN:VEVENT\r\nUID:" +
       uid +
-      "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+      "\r\n" +
+      alarm +
+      "END:VEVENT\r\nEND:VCALENDAR\r\n",
   );
   if (!event) throw new Error("Invalid event template");
   return editEvent(event, fields);

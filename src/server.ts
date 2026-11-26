@@ -202,8 +202,12 @@ export function createServer(
   });
   register(
     "calendar_create",
-    "Einzeltermin anlegen. Bei ganztägigen Terminen ist das Enddatum exklusiv.",
-    { calendar: z.string(), ...fields },
+    "Einzeltermin anlegen. location ist der Ort, reminderMinutes die Minuten vor Start (0 = bei Start). Bei ganztägigen Terminen ist das Enddatum exklusiv.",
+    {
+      calendar: z.string(),
+      ...fields,
+      reminderMinutes: z.int32().nonnegative().optional(),
+    },
     false,
     ({ calendar: id, ...a }) => calendar.create(id, a),
     { destructiveHint: false, idempotentHint: false },

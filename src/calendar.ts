@@ -10,6 +10,7 @@ import {
   singleEvent,
   strongEtag,
   type CalendarFields,
+  type NewCalendarFields,
   type CalendarRef,
 } from "./calendar-write.js";
 type Event = ReturnType<typeof expand>[number] & {
@@ -222,7 +223,7 @@ export class CalendarService {
       );
     return { c, url, event };
   }
-  async create(calendar: string, fields: CalendarFields) {
+  async create(calendar: string, fields: NewCalendarFields) {
     const c = this.source(calendar);
     const uid = randomUUID();
     const url = this.resource(this.collection(c.url), uid + ".ics");

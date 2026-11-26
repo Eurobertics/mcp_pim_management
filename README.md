@@ -110,7 +110,7 @@ Für direkten Netzwerkzugriff HTTPS verwenden. HTTP ist für Loopback oder den i
 | `mail_restore` | `originalActionId`, `actionId`, `reason` | Erfolgreiche Aussortierung rückgängig machen |
 | `mail_send` | `account`, `actionId`, `to`, `subject`, `text`, `cc?`, `bcc?`, `replyTo?` | Klartextmail senden und in Gesendet ablegen |
 | `calendar_events` | `calendar`, `from`, `to`, `limit?`, `cursor?` | Serientermine, Ausnahmen, Absagen und überlappende Termine |
-| `calendar_create` | `calendar`, `title`, `start`, `end`, `description?`, `location?` | Einzeltermin anlegen |
+| `calendar_create` | `calendar`, `title`, `start`, `end`, `description?`, `location?`, `reminderMinutes?` | Einzeltermin anlegen |
 | `calendar_update` | `ref` und zu ändernde Felder | Einzeltermin ändern oder zeitlich verschieben |
 | `calendar_delete` | `ref` | Einzeltermin löschen |
 
@@ -139,6 +139,8 @@ Nach einer externen Verschiebung, Ordnerlöschung oder UIDVALIDITY-Änderung kan
 ## Mailversand und Einzeltermine
 
 `mail_send` meldet SMTP-Annahme und Gesendet-Ablage getrennt. `state: completed` bedeutet Annahme für mindestens einen Empfänger. Die erste Antwort nennt angenommene und abgelehnte Adressen. Im Journal stehen nur die Anzahlen, die Message-ID und der Status. Bei `copy: failed` wurde die Mail angenommen, aber die Ablage konnte nicht bestätigt werden. Dieselbe Aktions-ID löst keinen weiteren Versand aus. Bei `pending` oder `uncertain` zuerst den Ausgang prüfen und keine neue ID zur Wiederholung erzeugen.
+
+Beim Anlegen speichert `location` den Ort und `reminderMinutes` optional eine Anzeige-Erinnerung relativ zum Start. `60` bedeutet eine Stunde vorher, `0` bedeutet zum Start. Bei Änderungen werden vorhandene Erinnerungen beibehalten.
 
 Kalenderänderungen benötigen die aktuelle `ref` mit starkem `etag` aus einem Werkzeugergebnis. Wenn der Server nach einem Schreibvorgang keinen ETag zurückgibt oder ein Konflikt gemeldet wird, den Termin erneut abfragen. Start und Ende werden gemeinsam geändert. `description: null` und `location: null` entfernen das jeweilige Feld. Ein zeitlicher Umzug behält UID und Kalender bei. Serien und Serienausnahmen sind lesbar. Einzeltermine können zu einem beliebigen Datum angelegt werden. Abfragen sind auf ein Zeitfenster von 93 Tagen pro Aufruf begrenzt.
 

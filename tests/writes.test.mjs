@@ -136,10 +136,15 @@ test("CalDAV creates, moves and deletes a single event conditionally", async () 
     start: "2026-12-05",
     end: "2026-12-06",
     location: "Berlin",
+    reminderMinutes: 60,
   });
   assert.equal(calls[0][1].headers["If-None-Match"], "*");
   assert.match(ics, /DTSTART;VALUE=DATE:20261205/);
   assert.match(ics, /SUMMARY:Tag\\; 1/);
+  assert.match(ics, /LOCATION:Berlin\r\n/);
+  const alarm =
+    /BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT60M\r\nDESCRIPTION:Terminerinnerung\r\nEND:VALARM/;
+  assert.match(ics, alarm);
   ics = ics.replace("END:VEVENT", "X-EXAMPLE:keep\r\nEND:VEVENT");
   const updated = await calendar.update(ref, {
     start: "2026-12-12T09:00:00+01:00",
@@ -149,6 +154,8 @@ test("CalDAV creates, moves and deletes a single event conditionally", async () 
   assert.equal(updated.ref.uid, ref.uid);
   assert.equal(calls[2][1].headers["If-Match"], '"first"');
   assert.match(ics, /DTSTART:20261212T080000Z/);
+  assert.match(ics, /DTSTAMP:[^\r\n]+\r\nBEGIN:VALARM/);
+  assert.match(ics, alarm);
   assert.match(ics, /X-EXAMPLE:keep/);
   await assert.rejects(calendar.remove(ref), { code: "CALENDAR_CONFLICT" });
   const count = calls.length;
